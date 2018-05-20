@@ -1,2 +1,1 @@
-uint8 buff_type
-uint8 buff_addition
+uint16 buff_mask
