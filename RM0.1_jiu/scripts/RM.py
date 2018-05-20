@@ -4,7 +4,7 @@ import rospy
 from Battle import BattleEnv
 from teleop_control import Controller
 from nav_msgs.msg import Odometry
-from teleop_controller.msg import EnemyPos, ShootCmd, ModeSW, RFID, YoloEnemy, Hurt, GameInfo, EnemyArea
+from teleop_controller.msg import EnemyPos, ShootCmd, ModeSW, RFID, YoloEnemy, Hurt, GameInfo, EnemyArea,Communite
 import math
 import numpy as np
 import tf
@@ -92,8 +92,7 @@ cmdvel_stop.angular.z = 0
 cmdvel_blockedpush = Twist()
 cmdvel_blockedretreat = Twist()
 # for test
-robot1isdead = 1  #0is alive; 1 is dead
-buffisavaliable = 1
+buffiscutted = False
 
 class BlackBoard():
     def __init__(self):
@@ -109,6 +108,9 @@ class BlackBoard():
         self.patrol_flag2 = 0  # ptl点
         self.leftarea = False
 
+        self.goallastforptl_x = 0
+        self.goallastforptl_y = 0
+
         self.Blocked = False
         self.Blocked_Prevent_close = False
         self.Blocked_Prevent_far = False
@@ -121,8 +123,8 @@ class BlackBoard():
         self.Blocked_GoalYaw = 0
 
         # 定义拯救点数组:5个点
-        self.PreRescuePoint = ((0.8,1.62,45),(2.25,4.5,-45),(7.2,3.38,-135),(5.75,0.5,135))
-        self.RescuePoint = ((4,2.5,0),(4.8,1.8,179),(3.2,3.2,0))
+        self.PreRescuePoint = ((1.35, 2.6, 45), (2.25, 4.5, -45), (6.65, 2.4, -135), (5.75, 0.5, 135))
+        self.RescuePoint = ((4, 2.5, 0), (4.8, 1.8, 179), (3.2, 3.2, 0))
         self.avoidloop_far = 0
         self.avoidloop_follow = 0
         self.avoidloop_patrol = 0
@@ -231,6 +233,8 @@ class CloseShoot(Task):
         self.time1 = 0
 
     def run(self):
+        self.blackboard.goallastforptl_x = env.followgoal_x
+        self.blackboard.goallastforptl_y = env.followgoal_y
         if env.EnemyPoseSave.enemy_dist > 0.8:  # 否则后退一些
             if self.blackboard.sended_close == False:
                 self.goal_x = env.MyPose['x']
@@ -311,6 +315,8 @@ class FarShoot(Task):
         self.time2 = 0
 
     def run(self):
+        self.blackboard.goallastforptl_x = env.followgoal_x
+        self.blackboard.goallastforptl_y = env.followgoal_y
         if self.blackboard.sended_far == False:
             if env.isActionAvaliable(env.goal_x, env.goal_y, env.goal_yaw):
                 self.goal_x = env.goal_x
@@ -333,16 +339,7 @@ class FarShoot(Task):
                 self.time1 = rospy.Time.now().secs
                 print 'r0: cant track %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
         if rospy.Time.now().secs - self.time1 > 0.2:
-            # 0.1m不走
-            if np.square(self.blackboard.BlockedPoseSaveX - env.MyPose['x']) + np.square(self.blackboard.BlockedPoseSaveY - env.MyPose['y']) < 0.0225 and np.abs(self.blackboard.BlockedPoseSaveYaw-env.MyPose['theta']) < 10:
-                self.blackboard.Blocked_GoalYaw = np.arctan2((self.goal_y-env.MyPose['y']), self.goal_x-env.MyPose['x'])*180/3.1416
-                self.blackboard.avoidloop_far = self.blackboard.avoidloop_far + 1
-                print 'far blocked!!!!!!! %s' % (self.blackboard.avoidloop_far)
-                self.blackboard.Blocked = True
-                self.blackboard.Blocked_Prevent_far = True
-                self.blackboard.Blocked_Prevent_patrol = True  #不执行ptl
-            else:
-                self.blackboard.sended_far = False
+            self.blackboard.sended_far = False
         return TaskStatus.SUCCESS
 
     def reset(self):
@@ -355,7 +352,7 @@ class IsBeated(Task):
         self.blackboard = blackboard
 
     def run(self):
-        if env.witch_armor >= 0:
+        if env.witch_armor > 0:
             self.blackboard.sended_close = False
             self.blackboard.sended_far = False
             self.blackboard.sended_patrol = False
@@ -411,8 +408,10 @@ class BeatedShoot(Task):
                 self.goal_yaw = env.MyPose['theta'] - 120
             elif env.witch_armor == 4:  #左摄像头
                 self.goal_yaw = env.MyPose['theta'] + 130
+                print 'camera zuo move!!!!!!!!!!11'
             elif env.witch_armor == 5:  #右摄像头
                 self.goal_yaw = env.MyPose['theta'] - 130
+                print 'camera you move!!!!!!!!!!'
             else:
                 print 'armor detect error!!!!!!!!!!!!'
             # 防止过度
@@ -426,10 +425,10 @@ class BeatedShoot(Task):
                 controller.send_goal(env.navgoal)
                 self.blackboard.sended_beated = True
                 self.time1 = rospy.Time.now().secs
-                print 'r0： beated move!!!!!!!!!!1'
+                # print 'r0： beated move!!!!!!!!!!1'
             else:
                 print 'r0: cant beated move %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
-        if rospy.Time.now().secs - self.time1 > 2.5:
+        if rospy.Time.now().secs - self.time1 > 3.5:
             self.blackboard.sended_beated = False
             env.witch_armor = -1
         return TaskStatus.SUCCESS
@@ -523,7 +522,6 @@ class Follow_Shoot(Task):
                 if env.isActionAvaliable(self.goal_x, self.goal_y, self.goal_yaw):  # 判断目标点是否可行
                     controller.send_goal(env.navgoal)
                     self.time1 = rospy.Time.now().secs
-                    print 'r0: follow........................... %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
                     self.blackboard.sended_follow = True
                 else:
                     print 'r0 cant move %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
@@ -543,7 +541,6 @@ class Follow_Shoot(Task):
                 if env.isActionAvaliable(self.goal_x, self.goal_y, self.goal_yaw):  # 判断目标点是否可行
                     controller.send_goal(env.navgoal)
                     self.time1 = rospy.Time.now().secs
-                    print 'r0: follow........................... %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
                     self.blackboard.sended_follow = True
                 else:
                     print 'r0 cant move %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
@@ -606,8 +603,30 @@ class Random(Task):
 
     def run(self):
         if self.blackboard.patrol_flag1 == 0:  #先自转
-            self.goal_x = env.MyPose['x']
-            self.goal_y = env.MyPose['y']
+            if self.blackboard.goallastforptl_x >= env.MyPose['x'] and self.blackboard.goallastforptl_y >= env.MyPose['y']:
+                self.goal_x = env.MyPose['x'] - 0.15
+                self.goal_y = env.MyPose['y'] - 0.15
+                print 'ptl1 ttttttttttttttttttttttttttttttttttttttt'
+            elif self.blackboard.goallastforptl_x >= env.MyPose['x'] and self.blackboard.goallastforptl_y < env.MyPose['y']:
+                self.goal_x = env.MyPose['x'] - 0.15
+                self.goal_y = env.MyPose['y'] + 0.15
+                print 'ptl2 ttttttttttttttttttttttttttttttttttttttttttt'
+            elif self.blackboard.goallastforptl_x < env.MyPose['x'] and self.blackboard.goallastforptl_y >= env.MyPose['y']:
+                self.goal_x = env.MyPose['x'] + 0.15
+                self.goal_y = env.MyPose['y'] - 0.15
+                print 'ptl3 ttttttttttttttttttttttttttttttttttttttttttt'
+            elif self.blackboard.goallastforptl_x < env.MyPose['x'] and self.blackboard.goallastforptl_y < env.MyPose['y']:
+                self.goal_x = env.MyPose['x'] + 0.15
+                self.goal_y = env.MyPose['y'] + 0.15
+                print 'ptl4 tttttttttttttttttttttttttttttttttttttttt'
+            else:
+                print 'ptl1 error!!!!!!!!!!!!!!!!'
+            if env.isActionAvaliable(self.goal_x, self.goal_y, 0):  # front1
+                self.goal_x = env.MyPose['x']
+                self.goal_y = env.MyPose['y']
+            else:
+                self.goal_x = env.MyPose['x']
+                self.goal_y = env.MyPose['y']
             if env.EnemyPoseSave_last >= 0:  #左转
                 if self.blackboard.patrol_flag2 == 0:  # 第一次转60度
                     self.goal_yaw = env.MyPose['theta'] + 135  #一次转90度；4次
@@ -633,7 +652,7 @@ class Random(Task):
             if self.blackboard.sended_patrol == False:
                 if env.isActionAvaliable(self.goal_x, self.goal_y, self.goal_yaw):  # front1
                     controller.send_goal(env.navgoal)
-                    print 'r0 is patrol_spin; Now Pose is %s, %s, %s' % (env.MyPose['x'], env.MyPose['y'], env.MyPose['theta'])
+                    print 'r0 is patrol_spin; goal is %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
                     self.time1 = rospy.Time.now().secs
                     self.blackboard.sended_patrol = True
             else:
@@ -647,16 +666,10 @@ class Random(Task):
         else:  #ptl
             if self.blackboard.patrol_flag == 0:  # 第一点：移动
                 if self.blackboard.sended_patrol == False:
-                    if robot1isdead == 0:  #另一台车是活的
-                        if np.square(env.MyPose['x'] - 6.5) + np.square(env.MyPose['y'] - 1.85) < np.square(
-                                env.MyPose_robot1['x'] - 1.5) + np.square(env.MyPose_robot1['y'] - 3.15):
-                            self.goal_x = 6
-                            self.goal_y = 1.8
-                            self.goal_yaw = 155
-                        else:
-                            self.goal_x = 2
-                            self.goal_y = 3.2
-                            self.goal_yaw = -35
+                    if env.MyHP_robot1 > 0:  #另一台车是活的
+                        self.goal_x = 6
+                        self.goal_y = 1.8
+                        self.goal_yaw = 155
                     else:  #另车是死的
                         if self.blackboard.leftarea == False:  #走you边
                             self.goal_x = 6
@@ -688,16 +701,10 @@ class Random(Task):
                                 self.blackboard.patrol_flag = 1
             elif self.blackboard.patrol_flag == 1:  #转
                 if self.blackboard.sended_patrol == False:
-                    if robot1isdead == 0:
-                        if np.square(env.MyPose['x'] - 6.5) + np.square(env.MyPose['y'] - 1.85) < np.square(
-                                env.MyPose_robot1['x'] - 1.5) + np.square(env.MyPose_robot1['y'] - 3.15):
-                            self.goal_x = 6.2
-                            self.goal_y = 1.8
-                            self.goal_yaw = -145
-                        else:
-                            self.goal_x = 1.8
-                            self.goal_y = 3.2
-                            self.goal_yaw = 35
+                    if env.MyHP_robot1 > 0:
+                        self.goal_x = 6.2
+                        self.goal_y = 1.8
+                        self.goal_yaw = -145
                     else:  #另车是死的
                         if self.blackboard.leftarea == False:  #走you边
                             self.goal_x = 6.2
@@ -718,16 +725,10 @@ class Random(Task):
                         self.blackboard.patrol_flag = 2
             elif self.blackboard.patrol_flag == 2:  #转
                 if self.blackboard.sended_patrol == False:
-                    if robot1isdead == 0:
-                        if np.square(env.MyPose['x'] - 6.5) + np.square(env.MyPose['y'] - 1.85) < np.square(
-                                env.MyPose_robot1['x'] - 1.5) + np.square(env.MyPose_robot1['y'] - 3.15):
-                            self.goal_x = 6.1
-                            self.goal_y = 1.8
-                            self.goal_yaw = 0
-                        else:
-                            self.goal_x = 1.9
-                            self.goal_y = 3.2
-                            self.goal_yaw = 178
+                    if env.MyHP_robot1 > 0:
+                        self.goal_x = 6.1
+                        self.goal_y = 1.8
+                        self.goal_yaw = 0
                     else:  #另车是死的
                         if self.blackboard.leftarea == False:  #走you边
                             self.goal_x = 6.1
@@ -748,16 +749,10 @@ class Random(Task):
                         self.blackboard.patrol_flag = 3
             elif self.blackboard.patrol_flag == 3:  #移动
                 if self.blackboard.sended_patrol == False:
-                    if robot1isdead == 0:
-                        if np.square(env.MyPose['x'] - 6.5) + np.square(env.MyPose['y'] - 1.85) < np.square(
-                                env.MyPose_robot1['x'] - 1.5) + np.square(env.MyPose_robot1['y'] - 3.15):
-                            self.goal_x = 7.1
-                            self.goal_y = 1.9
-                            self.goal_yaw = -75
-                        else:
-                            self.goal_x = 0.9
-                            self.goal_y = 3.1
-                            self.goal_yaw = 105
+                    if env.MyHP_robot1 > 0:
+                        self.goal_x = 7.1
+                        self.goal_y = 1.9
+                        self.goal_yaw = -75
                     else:  #另车是死的
                         if self.blackboard.leftarea == False:  #走you边
                             self.goal_x = 7.1
@@ -791,24 +786,18 @@ class Random(Task):
 
             elif self.blackboard.patrol_flag == 4:  #移动
                 if self.blackboard.sended_patrol == False:
-                    if robot1isdead == 0:
-                        if np.square(env.MyPose['x'] - 6.5) + np.square(env.MyPose['y'] - 1.85) < np.square(
-                                env.MyPose_robot1['x'] - 1.5) + np.square(env.MyPose_robot1['y'] - 3.15):
-                            self.goal_x = 6.75
-                            self.goal_y = 3.1
+                    if env.MyHP_robot1 > 0:
+                        self.goal_x = 6.65
+                        self.goal_y = 3
+                        self.goal_yaw = 70
+                    else:  # 另车是死的
+                        if self.blackboard.leftarea == False:  # 走you边
+                            self.goal_x = 6.65
+                            self.goal_y = 3
                             self.goal_yaw = 70
                         else:
-                            self.goal_x = 1.25
-                            self.goal_y = 1.9
-                            self.goal_yaw = -110
-                    else:  #另车是死的
-                        if self.blackboard.leftarea == False:  #走you边
-                            self.goal_x = 6.75
-                            self.goal_y = 3.1
-                            self.goal_yaw = 70
-                        else:
-                            self.goal_x = 1.25
-                            self.goal_y = 1.9
+                            self.goal_x = 1.35
+                            self.goal_y = 2
                             self.goal_yaw = -110
                     self.blackboard.BlockedPoseSaveX = env.MyPose['x']
                     self.blackboard.BlockedPoseSaveY = env.MyPose['y']
@@ -822,7 +811,7 @@ class Random(Task):
                     else:
                         print 'zheshiwentizheshiwenti'
                 else:
-                    if rospy.Time.now().secs - self.time1 > 2:
+                    if rospy.Time.now().secs - self.time1 > 2.8:
                         if np.square(self.blackboard.BlockedPoseSaveX - env.MyPose['x']) + np.square(self.blackboard.BlockedPoseSaveY - env.MyPose['y']) < 0.0225 and np.abs(self.blackboard.BlockedPoseSaveYaw - env.MyPose['theta']) < 10:
                             self.blackboard.avoidloop_patrol = self.blackboard.avoidloop_patrol + 1
                             print 'ptlback2 blocked!!!!!!!  %s' % (self.blackboard.avoidloop_patrol)
@@ -832,51 +821,43 @@ class Random(Task):
                         else:
                             self.blackboard.sended_patrol = False
                             if np.square(self.goal_x - env.MyPose['x']) + np.square(self.goal_y - env.MyPose['y']) < 0.0225:  # 到了
-                                # self.blackboard.patrol_flag = 5
+                                self.blackboard.patrol_flag = 5
+            elif self.blackboard.patrol_flag == 5:  #移动
+                if self.blackboard.sended_patrol == False:
+                    if env.MyHP_robot1 > 0:
+                        self.goal_x = 5.8
+                        self.goal_y = 1.8
+                        self.goal_yaw = 150
+                    else:  # 另车是死的
+                        if self.blackboard.leftarea == False:  # 走you边
+                            self.goal_x = 5.8
+                            self.goal_y = 1.8
+                            self.goal_yaw = 150
+                        else:
+                            self.goal_x = 2.2
+                            self.goal_y = 3.2
+                            self.goal_yaw = -30
+                    self.blackboard.BlockedPoseSaveX = env.MyPose['x']
+                    self.blackboard.BlockedPoseSaveY = env.MyPose['y']
+                    self.blackboard.BlockedPoseSaveYaw = env.MyPose['theta']
+                    if env.isActionAvaliable(self.goal_x, self.goal_y, self.goal_yaw):  # front1
+                        controller.send_goal(env.navgoal)
+                        print 'r0 is patrol_behind; goal is %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
+                        self.time1 = rospy.Time.now().secs
+                        self.blackboard.sended_patrol = True
+                else:
+                    if rospy.Time.now().secs - self.time1 > 2:
+                        if np.square(self.blackboard.BlockedPoseSaveX - env.MyPose['x']) + np.square(self.blackboard.BlockedPoseSaveY - env.MyPose['y']) < 0.0225 and np.abs(self.blackboard.BlockedPoseSaveYaw - env.MyPose['theta']) < 10:
+                            self.blackboard.avoidloop_patrol = self.blackboard.avoidloop_patrol + 1
+                            print 'ptlback blocked!!!!!!!  %s' % (self.blackboard.avoidloop_patrol)
+                            self.blackboard.Blocked_GoalYaw = np.arctan2((self.goal_y - env.MyPose['y']),self.goal_x - env.MyPose['x']) * 180 / 3.1416
+                            self.blackboard.Blocked = True
+                            self.blackboard.Blocked_Prevent_patrol = True
+                        else:
+                            self.blackboard.sended_patrol = False
+                            if np.square(self.goal_x - env.MyPose['x']) + np.square(self.goal_y - env.MyPose['y']) < 0.0225:  # 到了
                                 self.blackboard.patrol_flag = 0
                                 self.blackboard.leftarea = ~self.blackboard.leftarea
-            # elif self.blackboard.patrol_flag == 5:  #移动
-            #     if self.blackboard.sended_patrol == False:
-            #         if robot1isdead == 0:
-            #             if np.square(env.MyPose['x'] - 6.5) + np.square(env.MyPose['y'] - 1.85) < np.square(
-            #                     env.MyPose_robot1['x'] - 1.5) + np.square(env.MyPose_robot1['y'] - 3.15):
-            #                 self.goal_x = 5.6
-            #                 self.goal_y = 1.8
-            #                 self.goal_yaw = 90
-            #             else:
-            #                 self.goal_x = 2.4
-            #                 self.goal_y = 3.2
-            #                 self.goal_yaw = -90
-            #         else:  #另车是死的
-            #             if self.blackboard.leftarea == False:  #走you边
-            #                 self.goal_x = 5.6
-            #                 self.goal_y = 1.8
-            #                 self.goal_yaw = 90
-            #             else:
-            #                 self.goal_x = 2.4
-            #                 self.goal_y = 3.2
-            #                 self.goal_yaw = -90
-            #         self.blackboard.BlockedPoseSaveX = env.MyPose['x']
-            #         self.blackboard.BlockedPoseSaveY = env.MyPose['y']
-            #         self.blackboard.BlockedPoseSaveYaw = env.MyPose['theta']
-            #         if env.isActionAvaliable(self.goal_x, self.goal_y, self.goal_yaw):  # front1
-            #             controller.send_goal(env.navgoal)
-            #             print 'r0 is patrol_behind; goal is %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
-            #             self.time1 = rospy.Time.now().secs
-            #             self.blackboard.sended_patrol = True
-            #     else:
-            #         if rospy.Time.now().secs - self.time1 > 2:
-            #             if np.square(self.blackboard.BlockedPoseSaveX - env.MyPose['x']) + np.square(self.blackboard.BlockedPoseSaveY - env.MyPose['y']) < 0.0225 and np.abs(self.blackboard.BlockedPoseSaveYaw - env.MyPose['theta']) < 10:
-            #                 self.blackboard.avoidloop_patrol = self.blackboard.avoidloop_patrol + 1
-            #                 print 'ptlback blocked!!!!!!!  %s' % (self.blackboard.avoidloop_patrol)
-            #                 self.blackboard.Blocked_GoalYaw = np.arctan2((self.goal_y - env.MyPose['y']),self.goal_x - env.MyPose['x']) * 180 / 3.1416
-            #                 self.blackboard.Blocked = True
-            #                 self.blackboard.Blocked_Prevent_patrol = True
-            #             else:
-            #                 self.blackboard.sended_patrol = False
-            #                 if np.square(self.goal_x - env.MyPose['x']) + np.square(self.goal_y - env.MyPose['y']) < 0.04:  # 到了
-            #                     self.blackboard.patrol_flag = 0
-            #                     self.blackboard.leftarea = ~self.blackboard.leftarea
             else:
                 print 'patrol error!!!'
         return TaskStatus.SUCCESS
@@ -1081,62 +1062,17 @@ if __name__ == '__main__':
     # 机器人0的裁判信息
     rospy.Subscriber('rfid', RFID, env.getRFIDCallback)
     rospy.Subscriber('hurt', Hurt, env.getHurtInfoCallback)
-    # rospy.Subscriber('gameinfo', GameInfo, env.getMyHPCallback)
+    rospy.Subscriber('gameinfo', GameInfo, env.getMyHPCallback)
+    rospy.Subscriber('robot_1/gameinfo', GameInfo, env.getMyHPCallback_robot1)
     # rospy.Subscriber('yolo_enemy', YoloEnemy, env.getYoloEnemyCallback)
 
+    rospy.Subscriber('communite', Communite, env.getCommunite)
 
 
-    nID = ''
     while 1:
-        nID = raw_input("Input any key to start")
-        if len(nID) != len("13222319810101****"):
-            print 'Start the RM!!!!!!!!!!!!!!!!!!1'
-            print 'Go to center!!!!!!!!!!!!!!!!!!!'
-            if env.isActionAvaliable(4, 2.5, 0):
-                controller.send_goal(env.navgoal)
-            while np.square(env.MyPose['x']-4)+np.square(env.MyPose['y']-2.5) > 1.21 or np.abs(env.MyPose['theta']) > 15:
-                print 'go to go to: dist is %s; abs(theta) is %s' % (np.square(env.MyPose['x']-4)+np.square(env.MyPose['y']-2.5),np.abs(env.MyPose['theta']))
-                rospy.sleep(0.01)
-            time2 = rospy.Time.now().secs
-            while rospy.Time.now().secs - time2 < 3:
-                rospy.sleep(0.01)
-                controller.send_vel(cmdvel_slowfront)
-                if np.square(env.MyPose['x']-4)+np.square(env.MyPose['y']-2.5) < 0.0625:  # 进入符的标志
-                    controller.send_vel(cmdvel_stop)
-                    controller.send_vel(cmdvel_stop)
-                    # print 'Been in buff'
-                    time1 = rospy.Time.now().secs
-                    while rospy.Time.now().secs - time1 < 5.5:  # 得到符标志
-                        print 'wait buff!!!!!!!!!!!!'
-                        rospy.sleep(0.01)
-                    gettedbuff = True
-                    break
-            controller.send_vel(cmdvel_stop)
-            controller.send_vel(cmdvel_stop)
-            if gettedbuff == True:
-                print 'Success buff!!!!!!!!!!!!!!!!!!!!!!!1'
-                if env.isActionAvaliable(4.1, 1, 45):  #进入右区
-                    controller.send_goal(env.navgoal)
-                    time2 = rospy.Time.now().secs
-                while rospy.Time.now().secs - time2 < 1:
-                    rospy.sleep(0.01)
-                tree = BiuldTree()  # 已经加buff进入tree
-            else:
-                if env.isActionAvaliable(3, 2.5, -35):  #必须有一个弧度
-                    controller.send_goal(env.navgoal)
-                    print 'send back goal!!'
-                time2 = rospy.Time.now().secs
-                while rospy.Time.now().secs - time2 < 2:
-                    print 'houtui ing...................'
-                    rospy.sleep(0.01)
-                while env.EnemyPoseSave.enemy_dist > 0 and env.EnemyPoseSave.enemy_dist < 1.5:
-                    rospy.sleep(0.01)
-                print 'Failture buff!!!!!!!!!!!!!!!!!!!!!!!1'
-                if env.isActionAvaliable(4.1, 1, 45):  # 进入右区
-                    controller.send_goal(env.navgoal)
-                    time2 = rospy.Time.now().secs
-                while rospy.Time.now().secs - time2 < 1:
-                    rospy.sleep(0.01)
-                tree = BiuldTree()  # 已经加buff进入tree
+        if env.beentreeflag == 1:
+            tree = BiuldTree()  # 已经加buff进入tree
         else:
-            break
+            print 'wait start'
+            print env.beentreeflag
+        rospy.sleep(0.01)

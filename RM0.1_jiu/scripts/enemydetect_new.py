@@ -15,7 +15,7 @@ EnemyPose_robot3 = {'x': 0, 'y': 0, 'theta': 0}
 
 rospy.Subscriber('my_pose', Odometry, envdetect.getSelfPoseCallback)
 # rospy.Subscriber('robot_1/my_pose', Odometry, envdetect.getSelfPoseCallback_robot1)
-rospy.Subscriber('/robot_1/base_pose_ground_truth', Odometry, envdetect.getSelfPoseCallback_robot1)
+rospy.Subscriber('robot_1/my_pose', Odometry, envdetect.getSelfPoseCallback_robot1)
 
 
 def getEnemyPoseCallback_robot2(data):

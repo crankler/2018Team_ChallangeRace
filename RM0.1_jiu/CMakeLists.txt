@@ -62,6 +62,7 @@ add_message_files(
     EnemyArea.msg
     Calibrate.msg
     YoloEnemy.msg
+    Communite.msg
  )
 
 ## Generate services in the 'srv' folder

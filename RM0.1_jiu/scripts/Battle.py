@@ -62,6 +62,12 @@ class BattleEnv():
         self.distfromme = []
         self.distfromhim_robot1 = []
         self.distfromme_robot1 = []
+        self.followgoal_x = 0
+        self.followgoal_y = 0
+        self.followgoal_yaw = 0
+        self.followgoal_x_robot1 = 0
+        self.followgoal_y_robot1 = 0
+        self.followgoal_yaw_robot1 = 0
 
         self.armor_nonecount = 0
         self.armor_nonecount_robot1 = 0
@@ -74,6 +80,11 @@ class BattleEnv():
         # 裁判系统
         self.Rfid = 0
         self.Rfid_robot1 = 0
+        self.MyHP = 2000
+        self.MyHP_robot1 = 2000
+        self.fiveseconds = 0
+        self.beentreeflag = 0
+        self.beentreeflag_robot1 = 0
 
     def getSelfPoseCallback(self, data):
         self.MyPose['x'] = data.pose.pose.position.x
@@ -99,19 +110,45 @@ class BattleEnv():
 
     def Blockedpose_Analysis(self, x, y, theta):
         if (x>2.15 and x<3.15 and y>0 and y<2.5) or (x>0.85 and x<1.85 and y>1.2 and y<2.5) or (x>4.85 and x<5.85 and y>2.5 and y<5) or (x>6.15 and x<7.15 and y>2.5 and y<3.8):
-            self.blockedthetas = [90, -90]
+            for k in range(0, len(self.blockedthetas)):
+                del self.blockedthetas[0]
+            self.blockedthetas.append(90)
+            self.blockedthetas.append(-90)
         elif (x>0 and x<2.15 and y>2.7 and y<3.7) or (x>0 and x<2.15 and y>4 and y<5) or (x>5.85 and x<8 and y>1.3 and y<2.3) or (x>5.85 and x<8 and y>0 and y<1):
-            self.blockedthetas = [0, 179, -179]
+            for k in range(0, len(self.blockedthetas)):
+                del self.blockedthetas[0]
+            self.blockedthetas.append(0)
+            self.blockedthetas.append(178)
+            self.blockedthetas.append(-178)
         else:
-            self.blockedthetas = [0, 90, 179, -179, -90]
+            for k in range(0, len(self.blockedthetas)):
+                del self.blockedthetas[0]
+            self.blockedthetas.append(0)
+            self.blockedthetas.append(90)
+            self.blockedthetas.append(178)
+            self.blockedthetas.append(-178)
+            self.blockedthetas.append(-90)
 
     def Blockedpose_Analysis_robot1(self, x, y, theta):
         if (x>2.15 and x<3.15 and y>0 and y<2.5) or (x>0.85 and x<1.85 and y>1.2 and y<2.5) or (x>4.85 and x<5.85 and y>2.5 and y<5) or (x>6.15 and x<7.15 and y>2.5 and y<3.8):
-            self.blockedthetas_robot1 = [90, -90]
+            for k in range(0, len(self.blockedthetas_robot1)):
+                del self.blockedthetas_robot1[0]
+            self.blockedthetas_robot1.append(90)
+            self.blockedthetas_robot1.append(-90)
         elif (x>0 and x<2.15 and y>2.7 and y<3.7) or (x>0 and x<2.15 and y>4 and y<5) or (x>5.85 and x<8 and y>1.3 and y<2.3) or (x>5.85 and x<8 and y>0 and y<1):
-            self.blockedthetas_robot1 = [0, 179, -179]
+            for k in range(0, len(self.blockedthetas_robot1)):
+                del self.blockedthetas_robot1[0]
+            self.blockedthetas_robot1.append(0)
+            self.blockedthetas_robot1.append(178)
+            self.blockedthetas_robot1.append(-178)
         else:
-            self.blockedthetas_robot1 = [0, 90, 179, -179, -90]
+            for k in range(0, len(self.blockedthetas_robot1)):
+                del self.blockedthetas_robot1[0]
+            self.blockedthetas_robot1.append(0)
+            self.blockedthetas_robot1.append(90)
+            self.blockedthetas_robot1.append(178)
+            self.blockedthetas_robot1.append(-178)
+            self.blockedthetas_robot1.append(-90)
 
 
     def getEnemyPoseCallback(self, data):
@@ -138,12 +175,31 @@ class BattleEnv():
             self.goal_x = T[0, 3]
             self.goal_y = T[1, 3]
             self.goal_yaw = (np.arctan2(T[1, 0], T[0, 0])) * 180 / 3.1415926
-            # print 'enemy pose is in %s, %s, %s' % (self.goal_x, self.goal_y, self.goal_yaw)
-            self.Enemypose_Analysis(self.goal_x, self.goal_y, self.goal_yaw)
+
+            # 用于计算follow
+            dist = self.EnemyPoseSave.enemy_dist
+            yaw = self.EnemyPoseSave.enemy_yaw * 3.1416 / 180
+            alpha = self.MyPose['theta'] * 3.1416 / 180
+            x = self.MyPose['x']
+            y = self.MyPose['y']
+            dx = dist * math.cos(yaw)
+            dy = dist * math.sin(yaw)
+            Ts0 = np.mat(
+                [[math.cos(alpha), -math.sin(alpha), 0, x], [math.sin(alpha), math.cos(alpha), 0, y], [0, 0, 1, 0],
+                 [0, 0, 0, 1]])
+            Tse = np.mat([[math.cos(yaw), -math.sin(yaw), 0, dx], [math.sin(yaw), math.cos(yaw), 0, dy], [0, 0, 1, 0],
+                          [0, 0, 0, 1]])
+            T = Ts0 * Tse
+            self.followgoal_x = T[0, 3]
+            self.followgoal_y = T[1, 3]
+            self.followgoal_yaw = (np.arctan2(T[1, 0], T[0, 0])) * 180 / 3.1415926
+
+            self.Enemypose_Analysis(self.followgoal_x, self.followgoal_y, self.followgoal_yaw)
+            # print 'r1 should !!follow: num is %s, goal is %s %s, %s dist is %s  yaw is %s' % (self.enemyblock_num, self.choosedgoal_x_robot1, self.choosedgoal_y_robot1, self.choosedgoal_yaw_robot1, self.EnemyPoseSave.enemy_dist,self.EnemyPoseSave.enemy_yaw)
 
         else:
             self.num_no_enemy = self.num_no_enemy + 1
-        if self.num_no_enemy > 10:  #超过1s都没数据;太长或导致撞车
+        if self.num_no_enemy > 5:  #超过1s都没数据;太长或导致撞车
             self.EnemyPoseSave.enemy_yaw = 0
             self.EnemyPoseSave.enemy_pitch = 0
             self.EnemyPoseSave.enemy_dist = 0
@@ -173,12 +229,32 @@ class BattleEnv():
             self.goal_x_robot1 = T_robot1[0, 3]
             self.goal_y_robot1 = T_robot1[1, 3]
             self.goal_yaw_robot1 = (np.arctan2(T_robot1[1, 0], T_robot1[0, 0])) * 180 / 3.1415926
-            # print 'enemy pose_robot1 is in %s, %s, %s' % (self.goal_x_robot1, self.goal_y_robot1, self.goal_yaw_robot1)
-            self.Enemypose_Analysis_robot1(self.goal_x_robot1, self.goal_y_robot1, self.goal_yaw_robot1)
+
+            # 用于follow
+            dist_robot1 = self.EnemyPoseSave_robot1.enemy_dist
+            yaw_robot1 = self.EnemyPoseSave_robot1.enemy_yaw * 3.1416 / 180
+            alpha_robot1 = self.MyPose_robot1['theta'] * 3.1416 / 180
+            x_robot1 = self.MyPose_robot1['x']
+            y_robot1 = self.MyPose_robot1['y']
+            dx_robot1 = dist_robot1 * math.cos(yaw_robot1)
+            dy_robot1 = dist_robot1 * math.sin(yaw_robot1)
+            Ts0_robot1 = np.mat(
+                [[math.cos(alpha_robot1), -math.sin(alpha_robot1), 0, x_robot1],
+                 [math.sin(alpha_robot1), math.cos(alpha_robot1), 0, y_robot1], [0, 0, 1, 0],
+                 [0, 0, 0, 1]])
+            Tse_robot1 = np.mat([[math.cos(yaw_robot1), -math.sin(yaw_robot1), 0, dx_robot1],
+                                 [math.sin(yaw_robot1), math.cos(yaw_robot1), 0, dy_robot1], [0, 0, 1, 0],
+                                 [0, 0, 0, 1]])
+            T_robot1 = Ts0_robot1 * Tse_robot1
+            self.followgoal_x_robot1 = T_robot1[0, 3]
+            self.followgoal_y_robot1 = T_robot1[1, 3]
+            self.followgoal_yaw_robot1 = (np.arctan2(T_robot1[1, 0], T_robot1[0, 0])) * 180 / 3.1415926
+            self.Enemypose_Analysis_robot1(self.followgoal_x_robot1, self.followgoal_y_robot1, self.followgoal_yaw_robot1)
+            # print 'r0 should !!follow: num is %s, goal is %s, %s, %s dist is %s,  yaw is %s' % (self.enemyblock_num_robot1,self.choosedgoal_x, self.choosedgoal_y, self.choosedgoal_yaw, self.EnemyPoseSave_robot1.enemy_dist,self.EnemyPoseSave_robot1.enemy_yaw)
 
         else:
             self.num_no_enemy_robot1 = self.num_no_enemy_robot1 + 1
-        if self.num_no_enemy_robot1 > 10:
+        if self.num_no_enemy_robot1 > 5:
             self.EnemyPoseSave_robot1.enemy_yaw = 0
             self.EnemyPoseSave_robot1.enemy_pitch = 0
             self.EnemyPoseSave_robot1.enemy_dist = 0
@@ -952,54 +1028,54 @@ class BattleEnv():
     def getRFIDCallback_robot1(self, data):
         self.Rfid_robot1 = data
 
-    # def getMyHPCallback(self, data):
-    #     # data = GameInfo()
-    #     self.MyHP = data
-    #     self.fiveseconds = data.game_process
+    def getMyHPCallback(self, data):
+        # data = GameInfo()
+        self.MyHP = data
+        self.fiveseconds = data.game_process
+
+    def getMyHPCallback_robot1(self, data):
+        # data = GameInfo()
+        self.MyHP_robot1 = data
+        # self.fiveseconds = data.game_process
 
     def getYoloEnemyCallback(self, data):
+        # print 'camero is %s, %s' % (data.leftcamera,data.rightcamera)
         # self.yolo_enemy = data
         # data = YoloEnemy()
-        if self.witch_armor == 0:  #armor检测不到才执行
+        # print self.witch_armor
+        if self.witch_armor == -1:  #armor检测不到才执行
             if data.leftcamera > 0:
                 self.witch_armor = 4
-                self.deputy_nonecount = 0
+                print 'detect armor 4'
             elif data.rightcamera > 0:
                 self.witch_armor = 5
-                self.deputy_nonecount = 0
+                print 'detect armor 5'
             else:  #都没看到
-                if self.deputy_nonecount == 30:  #1s都看不到
-                    self.witch_armor = -1
-                    self.deputy_nonecount = 0
-                else:
-                    self.deputy_nonecount = self.deputy_nonecount+1
+                self.witch_armor = -1
         else:
             pass
 
     def getYoloEnemyCallback_robot1(self, data):
         # self.yolo_enemy = data
         # data = YoloEnemy()
-        if self.witch_armor_robot1 == 0:  #armor检测不到才执行
+        if self.witch_armor_robot1 == -1:  #armor检测不到才执行
             if data.leftcamera > 0:
                 self.witch_armor_robot1 = 4
-                self.deputy_nonecount_robot1 = 0
             elif data.rightcamera > 0:
                 self.witch_armor_robot1 = 5
-                self.deputy_nonecount_robot1 = 0
             else:  #都没看到
-                if self.deputy_nonecount_robot1 == 30:
-                    self.witch_armor_robot1 = -1
-                    self.deputy_nonecount_robot1 = 0
-                else:
-                    self.deputy_nonecount_robot1 = self.deputy_nonecount_robot1+1
+                self.witch_armor_robot1 = -1
         else:
             pass
 
 
+    def getCommunite(self, data):
+        self.beentreeflag = data.beentreeflag
+        self.beentreeflag_robot1 = data.beentreeflag_robot1
 
-
-
-
+    def getCommunite_robot1(self, data):
+        self.beentreeflag = data.beentreeflag
+        self.beentreeflag_robot1 = data.beentreeflag_robot1
 
     def isActionAvaliable(self, px, py, theta):
         ok = False

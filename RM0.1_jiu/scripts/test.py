@@ -13,7 +13,8 @@ if __name__ == '__main__':
     # acc.append(2.7)
     # for k in range(0,len(acc)):
     #     del acc[0]
-    print np.sin(3.14/6)
+    print np.arctan2(2,3)*180/3.1416
+    print np.cos(60 * 3.1416 / 180)
     # for k in enumerate(acc):
     #     print k
     # print min(dist)

@@ -16,7 +16,8 @@ if __name__ == '__main__':
     rate = rospy.Rate(40.0)
     while not rospy.is_shutdown():
         try:
-            t, q = tflistener.lookupTransform("/map", "base_link", rospy.Time(0))
+            t, q = tflistener.lookupTransform("/map", "robot_0/base_link", rospy.Time(0))
+            # t, q = tflistener.lookupTransform("/map", "base_link", rospy.Time(0))
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
             continue
         pose.pose.pose.position.x = t[0]
